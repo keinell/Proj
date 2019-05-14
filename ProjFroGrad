@@ -58,7 +58,6 @@ contract Trade is Ownable {
         string lockSellerId;
         string lockedStuff;
         uint16 price;
-        string password;
     }
     
     uint16 sellCnt;
@@ -66,10 +65,11 @@ contract Trade is Ownable {
     
     mapping(address => string) findName;
     mapping(string => address) findAddr;
+    mapping(address => string) addrPsw;
     mapping(address => uint16) balanceOf;
     
-    Sell[] selling;
-    SellLock[] lockedSelling;
+    mapping ( uint => Sell) selling;
+    mapping ( uint => SellLock) lockedSelling;
     
     //Add coin for Test
     function Mint(uint16 supply,string memory name) public onlyOwner {
@@ -78,46 +78,59 @@ contract Trade is Ownable {
         emit coinAdded(findAddr[name], supply);
     }
     //닉네임설정
-    function setNickname(string memory Nickname) public {
-            
+    function setNickname(string memory Nickname,string memory psw) public {
         require(findAddr[Nickname] == address(0) &&
                 keccak256(abi.encodePacked(Nickname)) != keccak256(abi.encodePacked("")));
         findName[msg.sender] = Nickname;
         findAddr[Nickname] = msg.sender;
+        addrPsw[msg.sender] = psw;
     }
     
     //물품 추가
     function addItem(string memory itemName, uint16 price) public {
         require(keccak256(abi.encodePacked(findName[msg.sender])) != keccak256(""));
-        selling.push(Sell(sellCnt, itemName, findName[msg.sender], price));
         sellCnt++;
-    }
-    
-    //locked selling
-    function addLockedItem(string memory thing,uint16 price, string memory Seller,string memory Password) public {
-        require(findAddr[Seller] != address(0), "SellerId doesn't exist!");
-        lockedSelling.push(SellLock(lockCnt, Seller,thing, price,Password));
-        lockCnt++;
+        selling[sellCnt]=Sell(sellCnt,itemName,findName[msg.sender],price);
     }
     
     //물품 구매
     function buying(uint16 Num, string memory Seller) public {
-        require(balanceOf[msg.sender] >= selling[Num-1].price && findAddr[selling[Num-1].sellerId] != msg.sender);
-        balanceOf[msg.sender] = balanceOf[msg.sender] - selling[Num-1].price;
-        balanceOf[findAddr[Seller]] = balanceOf[findAddr[Seller]] + selling[Num-1].price;
-        selling[Num-1].stuff = "Sold Out";
-        emit itemSold(findAddr[Seller],msg.sender,selling[Num-1].price); 
+        require(balanceOf[msg.sender] >= selling[Num].price && findAddr[selling[Num].sellerId] != msg.sender);
+        balanceOf[msg.sender] = balanceOf[msg.sender] - selling[Num].price;
+        balanceOf[findAddr[Seller]] = balanceOf[findAddr[Seller]] + selling[Num].price;
+        selling[Num] = Sell(0,"","",0);
+        emit itemSold(findAddr[Seller],msg.sender,selling[Num].price); 
+    }
+
+    function getInfo() public view returns(string memory Name, uint16 Amount) {
+        return (findName[msg.sender], balanceOf[msg.sender]);
     }
     
-    function freeLockedItem(uint16 Num,string memory SellerId ,string memory Psw ) public returns(bool) {
-        require(findAddr[lockedSelling[Num-1].lockSellerId] == findAddr[SellerId] &&
-        keccak256(abi.encodePacked(lockedSelling[Num-1].password)) == keccak256(abi.encodePacked(Psw)));
-        lockedSelling[Num-1] = SellLock(0,"","",0,"");
-        return true;    
+    function getItemInfo(uint16 ListNum) public view returns(uint16 ItemNum, string memory StuffName, uint16 Price){
+        return (selling[ListNum].itemNum, selling[ListNum].stuff, selling[ListNum].price);
     }
     
-    function buyingLockedItem(uint16 Num, string memory Buyer) public returns(bool) {
-        require(balanceOf[findAddr[Buyer]] >= lockedSelling[Num-1].price);
+}
+contract Locker is Trade {
+    
+    mapping(uint => SellLock) lockSelling;
+    
+    uint16 lockNum;
+    
+    function Lock(string memory SellerId, string memory stuff, uint16 price) public {
+        lockSelling[lockNum]=SellLock(lockNum,SellerId,stuff,price);
+        lockNum++;
+    }
+    
+    function getInfo(uint Num) public view returns(string memory, string memory, uint16) {
+        return (lockSelling[Num-1].lockSellerId, lockSelling[Num-1].lockedStuff,lockSelling[Num-1].price);
+    }
+    
+    function buyingLockedItem(uint16 Num, string memory Buyer,string memory Psw) public returns(bool) {
+        require(
+            balanceOf[findAddr[Buyer]] >= lockedSelling[Num-1].price &&
+            keccak256(abi.encodePacked(addrPsw[findAddr[Buyer]])) == keccak256(abi.encodePacked(Psw))
+        );
         uint16 tempForSeller = balanceOf[findAddr[lockedSelling[Num-1].lockSellerId]];
         uint16 tempForBuyer = balanceOf[findAddr[Buyer]];
         balanceOf[findAddr[Buyer]] = balanceOf[findAddr[Buyer]] - lockedSelling[Num-1].price;
@@ -130,17 +143,13 @@ contract Trade is Ownable {
         else {
             return false;
         }        
-    }
-
-    function getInfo() public view returns(string memory Name, uint16 Amount) {
-        return (findName[msg.sender], balanceOf[msg.sender]);
+        
     }
     
-    function getItemInfo(uint16 ListNum) public view returns(uint16 ItemNum, string memory StuffName, uint16 Price){
-        return (selling[ListNum-1].itemNum, selling[ListNum-1].stuff, selling[ListNum-1].price);
-    }
-    function getLockedItemInfo(uint16 ListNum) public view returns(uint16 ItemNum, string memory StuffName, uint16 Price){
-        return (lockedSelling[ListNum-1].lockNum, lockedSelling[ListNum-1].lockedStuff, lockedSelling[ListNum-1].price);
+    function freeLockedItem(uint16 Num,string memory SellerId) public returns(bool) {
+        require(findAddr[lockedSelling[Num-1].lockSellerId] == findAddr[SellerId] );
+        lockedSelling[Num-1] = SellLock(0,"","",0);
+        return true;    
     }
     
 }
